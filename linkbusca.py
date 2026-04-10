@@ -7,8 +7,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 import os
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+import os
 
-def obter_link_busca():
+def criar_driver():
     options = webdriver.ChromeOptions()
 
     options.add_argument("--headless=new")
@@ -16,11 +19,27 @@ def obter_link_busca():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
 
-    options.binary_location = "/usr/bin/chromium"
+    # caminhos do Render
+    chrome_bin = "/usr/bin/chromium"
+    chromedriver_bin = "/usr/bin/chromedriver"
 
-    service = Service("/usr/bin/chromedriver")
+    # verifica se existem
+    if os.path.exists(chrome_bin) and os.path.exists(chromedriver_bin):
+        options.binary_location = chrome_bin
+        service = Service(chromedriver_bin)
+        return webdriver.Chrome(service=service, options=options)
 
-    driver = webdriver.Chrome(service=service, options=options)
+    # fallback local
+    from webdriver_manager.chrome import ChromeDriverManager
+    return webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()),
+        options=options
+    )
+
+def obter_link_busca():
+
+    driver = criar_driver()
+
     try:
         driver.get("https://www.in.gov.br/materia")
 
