@@ -7,10 +7,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 import os
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-import os
-
 def criar_driver():
     options = webdriver.ChromeOptions()
 
