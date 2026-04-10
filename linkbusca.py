@@ -5,19 +5,22 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+import os
 
 
 def obter_link_busca():
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-software-rasterizer")
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()),
-        options=options
-    )
+    if os.environ.get("RENDER"):
+        options.binary_location = "/usr/bin/chromium"
 
+    driver = webdriver.Chrome(options=options)
     try:
         driver.get("https://www.in.gov.br/materia")
 
