@@ -1,3 +1,6 @@
-pip install streamlit pandas requests
-pip install streamlit selenium webdriver-manager
-pip install pdfplumber
+streamlit
+pandas
+requests
+selenium
+webdriver-manager
+pdfplumber
