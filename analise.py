@@ -1,14 +1,29 @@
-# pesquisa.py
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
+
+
+def criar_driver():
+    options = Options()
+
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+
+    # 🔥 necessário no Render
+    options.binary_location = "/usr/bin/chromium"
+    service = Service("/usr/bin/chromedriver")
+
+    return webdriver.Chrome(service=service, options=options)
+
 
 def pegar_texto(driver):
     paragrafos = driver.find_elements(By.CLASS_NAME, "dou-paragraph")
     return " ".join([p.text for p in paragrafos]).lower()
+
 
 def verificar_palavras(texto, palavras):
     resultado = {}
@@ -16,16 +31,18 @@ def verificar_palavras(texto, palavras):
         resultado[p] = p.lower() in texto
     return resultado
 
+
 def analisar_links(url_busca, palavras, status=None, progress=None):
-    options = Options()
-    options.add_argument("--headless")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver = criar_driver()
 
     resumo = []
     detalhes = []
+
     try:
-        if status: status.markdown("🔎 **Filtrando buscas...**")
-        if progress: progress.progress(10)
+        if status:
+            status.markdown("🔎 **Filtrando buscas...**")
+        if progress:
+            progress.progress(10)
 
         driver.get(url_busca)
         driver.implicitly_wait(5)
@@ -34,8 +51,10 @@ def analisar_links(url_busca, palavras, status=None, progress=None):
         links = [(r.text, r.get_attribute("href")) for r in resultados]
         total_links = len(links)
 
-        if status: status.markdown(f"🌐 **Abrindo resultados... {total_links} encontrados**")
-        if progress: progress.progress(20)
+        if status:
+            status.markdown(f"🌐 **Abrindo resultados... {total_links} encontrados**")
+        if progress:
+            progress.progress(20)
 
         for i, (titulo, link) in enumerate(links):
             if progress:
@@ -67,16 +86,20 @@ def analisar_links(url_busca, palavras, status=None, progress=None):
 
             detalhes.append((titulo, link, resultado))
 
-        if progress: progress.progress(100)
-        if status: status.markdown("✅ **Finalizado!**")
+        if progress:
+            progress.progress(100)
+        if status:
+            status.markdown("✅ **Finalizado!**")
 
         return resumo
 
     finally:
         driver.quit()
 
+
 def gerar_tabela(resumo):
     dados_tabela = []
+
     for r in resumo:
         link_pdf = r["PDF"].split("(")[1].replace(")", "")
         dados_tabela.append({
@@ -96,4 +119,5 @@ def gerar_tabela(resumo):
 
     styled_df = df.style.apply(destacar_linha, axis=1)
     styled_df = styled_df.hide(axis="columns", subset=["_qtd"])
+
     return styled_df
