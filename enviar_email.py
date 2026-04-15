@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import smtplib
+import socket
 from datetime import date
 from email.message import EmailMessage
 from pathlib import Path
+from time import perf_counter, sleep
 
 import pandas as pd
 
@@ -65,14 +67,14 @@ def _adicionar_anexo(msg: EmailMessage, arquivo: Path) -> None:
 	msg.add_attachment(conteudo, maintype=maintype, subtype=subtype, filename=arquivo.name)
 
 
-def _enviar_smtp(msg: EmailMessage, host: str, port: int, usuario: str, senha: str) -> None:
+def _enviar_smtp(msg: EmailMessage, host: str, port: int, usuario: str, senha: str, timeout: int) -> None:
 	if port == 465:
-		with smtplib.SMTP_SSL(host, port) as servidor:
+		with smtplib.SMTP_SSL(host, port, timeout=timeout) as servidor:
 			servidor.login(usuario, senha)
 			servidor.send_message(msg)
 		return
 
-	with smtplib.SMTP(host, port) as servidor:
+	with smtplib.SMTP(host, port, timeout=timeout) as servidor:
 		servidor.ehlo()
 		servidor.starttls()
 		servidor.ehlo()
@@ -84,19 +86,35 @@ def enviar_email_representacoes(
 	caminho_csv: str = "relatorio.csv",
 	pasta_pdfs: str = "downloads_pdfs",
 ) -> dict:
+	inicio = perf_counter()
 	smtp_host = os.getenv("SMTP_HOST")
 	smtp_port = int(os.getenv("SMTP_PORT", "465"))
 	smtp_usuario = os.getenv("SMTP_USER")
 	smtp_senha = os.getenv("SMTP_PASSWORD")
 	email_remetente = os.getenv("EMAIL_FROM", smtp_usuario)
 	destinatarios = _listar_destinatarios()
+	smtp_timeout = int(os.getenv("SMTP_TIMEOUT", "30"))
+	smtp_max_retries = int(os.getenv("SMTP_MAX_RETRIES", "3"))
+
+	if not smtp_host or not smtp_usuario or not smtp_senha:
+		return {
+			"ok": False,
+			"mensagem": "Variaveis SMTP obrigatorias nao configuradas.",
+			"duracao_segundos": round(perf_counter() - inicio, 2),
+		}
+
+	if not destinatarios:
+		return {
+			"ok": False,
+			"mensagem": "Nenhum destinatario encontrado em EMAIL_TO.",
+			"duracao_segundos": round(perf_counter() - inicio, 2),
+		}
 
 	tem_representacoes, nomes_representacoes = _carregar_representacoes(caminho_csv)
 
 	msg = EmailMessage()
 	msg["From"] = email_remetente
-	msg["To"] = email_remetente  
-	msg["Bcc"] = ", ".join(destinatarios)
+	msg["To"] = ", ".join(destinatarios)
 	msg["Subject"] = f"Representacoes {date.today().strftime('%d/%m/%Y')}"
 	msg.set_content(_montar_corpo_email(tem_representacoes, nomes_representacoes))
 
@@ -110,5 +128,24 @@ def enviar_email_representacoes(
 			for pdf in sorted(pasta.glob("*.pdf")):
 				_adicionar_anexo(msg, pdf)
 
+	ultimo_erro = None
+	for tentativa in range(1, smtp_max_retries + 1):
+		try:
+			_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha, smtp_timeout)
+			return {
+				"ok": True,
+				"mensagem": f"Email enviado com sucesso na tentativa {tentativa}.",
+				"duracao_segundos": round(perf_counter() - inicio, 2),
+			}
+		except (smtplib.SMTPException, OSError, TimeoutError, socket.gaierror) as erro:
+			ultimo_erro = erro
+			print(f"[SMTP] Tentativa {tentativa}/{smtp_max_retries} falhou: {type(erro).__name__}: {erro}")
+			if tentativa < smtp_max_retries:
+				sleep(tentativa)
 
-	_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha)
+	return {
+		"ok": False,
+		"mensagem": f"Falha ao enviar email via SMTP apos {smtp_max_retries} tentativas.",
+		"erro": f"{type(ultimo_erro).__name__}: {ultimo_erro}" if ultimo_erro else "Erro nao identificado.",
+		"duracao_segundos": round(perf_counter() - inicio, 2),
+	}
