@@ -127,9 +127,16 @@ def _coletar_links_paginados(driver, status=None, max_paginas=200):
     return links_unicos
 
 def analisar_links(url_busca, palavras, status=None, progress=None):
-    options = Options()
-    options.add_argument("--headless")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    options = webdriver.ChromeOptions()
+    options.binary_location = "/usr/bin/chromium"
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    driver = webdriver.Chrome(
+        service=Service("/usr/bin/chromedriver"),
+        options=options
+    )
 
     resumo = []
     detalhes = []
