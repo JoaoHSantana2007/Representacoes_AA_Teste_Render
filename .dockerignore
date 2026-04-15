@@ -1,0 +1,30 @@
+# Git e metadados
+.git
+.gitignore
+
+# Ambientes e segredos
+.env
+.env.*
+*.pem
+*.key
+
+# Python cache/build
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# IDE/SO
+.vscode/
+.DS_Store
+
+# Artefatos de execucao
+downloads_pdfs/
+relatorio.csv
+
+# Documentacao local
+doc/
