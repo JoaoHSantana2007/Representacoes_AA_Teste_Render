@@ -4,37 +4,19 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service
-import os
+from webdriver_manager.chrome import ChromeDriverManager
 
-def criar_driver():
+
+def obter_link_busca(data_inicial_str, data_final_str):
     options = webdriver.ChromeOptions()
-
-    options.add_argument("--headless=new")
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
 
-    # caminhos do Render
-    chrome_bin = "/usr/bin/chromium"
-    chromedriver_bin = "/usr/bin/chromedriver"
-
-    # verifica se existem
-    if os.path.exists(chrome_bin) and os.path.exists(chromedriver_bin):
-        options.binary_location = chrome_bin
-        service = Service(chromedriver_bin)
-        return webdriver.Chrome(service=service, options=options)
-
-    # fallback local
-    from webdriver_manager.chrome import ChromeDriverManager
-    return webdriver.Chrome(
+    driver = webdriver.Chrome(
         service=Service(ChromeDriverManager().install()),
         options=options
     )
-
-def obter_link_busca():
-
-    driver = criar_driver()
 
     try:
         driver.get("https://www.in.gov.br/materia")
@@ -63,6 +45,33 @@ def obter_link_busca():
         wait.until(
             EC.element_to_be_clickable((By.XPATH, "//label[@for='personalizado']"))
         ).click()
+
+        # data inicial e final
+        driver.execute_script(
+                """
+                const dataInicial = arguments[0];
+                const dataFinal = arguments[1];
+
+                const inicio = document.querySelector('#data-inicio');
+                const fim = document.querySelector('#data-fim');
+
+                const preencher = (campo, valor) => {
+                    if (!campo) return false;
+                    campo.removeAttribute('readonly');
+                    campo.focus();
+                    campo.value = valor;
+                    campo.dispatchEvent(new Event('input', { bubbles: true }));
+                    campo.dispatchEvent(new Event('change', { bubbles: true }));
+                    return campo.value === valor;
+                };
+
+                if (!inicio || !fim) return false;
+
+                return preencher(inicio, dataInicial) && preencher(fim, dataFinal);
+                """,
+                data_inicial_str,
+                data_final_str,
+        )
 
         # enter
         search_input.send_keys(Keys.ENTER)
