@@ -110,8 +110,8 @@ def enviar_email_representacoes(
 				_adicionar_anexo(msg, pdf)
 
 	
-		try:
-			_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha)
+	try:
+		_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha)
 
-		except:
-			pass
+	except:
+		pass
