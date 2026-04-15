@@ -95,7 +95,8 @@ def enviar_email_representacoes(
 
 	msg = EmailMessage()
 	msg["From"] = email_remetente
-	msg["To"] = ", ".join(destinatarios)
+	msg["To"] = email_remetente  
+	msg["Bcc"] = ", ".join(destinatarios)
 	msg["Subject"] = f"Representacoes {date.today().strftime('%d/%m/%Y')}"
 	msg.set_content(_montar_corpo_email(tem_representacoes, nomes_representacoes))
 
@@ -109,6 +110,5 @@ def enviar_email_representacoes(
 			for pdf in sorted(pasta.glob("*.pdf")):
 				_adicionar_anexo(msg, pdf)
 
-	for destinatario in destinatarios:
-		msg["To"] = destinatario	
-		_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha)
+
+	_enviar_smtp(msg, smtp_host, smtp_port, smtp_usuario, smtp_senha)
