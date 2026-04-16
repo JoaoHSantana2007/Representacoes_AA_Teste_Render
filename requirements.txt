@@ -6,3 +6,4 @@ webdriver-manager
 pdfplumber
 python-dotenv
 resend
+beautifulsoup4

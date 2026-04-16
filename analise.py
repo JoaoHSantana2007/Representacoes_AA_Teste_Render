@@ -1,4 +1,3 @@
-# pesquisa.py
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
@@ -7,60 +6,115 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
+
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-palavras_negativas = [
-    # verbos normativos (muito fortes)
-    "altera", "alterado", "alterada", "alteração",
-    "modifica", "modificado", "modificada",
-    "revoga", "revogado", "revogada",
-    "revogam-se", "fica revogada", "ficam revogadas",
-    "passa a vigorar", "vigorar",
-    "substitui", "substituído", "substituída",
-    "incluir", "incluído", "incluída",
-    "excluir", "excluído", "excluída",
+# =========================
+# 🎯 PESOS
+# =========================
+PESOS_POSITIVOS = {
+    "fica instituído": 7,
+    "será composto": 7,
+    "designar os seguintes membros": 7,
+    "alterar designações": 7,
+    "para compor": 2,
+    "comitê": 1,
+    "comissao": 1,
+    "conselho": 1,
+    "grupo de trabalho": 1,
+    "grupo de assessoramento": 1,
+    "grupo de assessoria": 1,
+    "grupo conjunto": 1,
+    "grupo especial": 1,
+    "grupo técnico": 1,
+    "subcomissao": 1,
+    "subcomite": 1,
+    "subgrupo": 1,
+    "designados": 1,
+    "designado": 1,
+    "nomeados": 1,
+    "nomeado": 1,
+    "indicados": 1,
+    "indicado": 1,
+    "membro": 1,
+    "representante": 1,
+}
 
-    # estrutura de norma jurídica
-    "resolve", "resolvem", "resolve-se",
-    "dispõe", "dispoe", "disposições",
-    "regulamenta", "regulamentado",
-    "estabelece", "estabelecido",
-    "institui", "instituído",
-    "define", "definido",
+PESOS_NEGATIVOS = {
+    "incluir": 1,
+    "incluído": 1,
+    "incluída": 1,
+    "substitui": 1,
+    "substituído": 1,
+    "substituída": 1,
+    "excluir": 1,
+    "excluído": 1,
+    "excluída": 1,
+    "regulamenta": 1,
+    "institui": 1,
+    "estabelece": 1,
+    "disposições": 1,
+    "resolução": 1,
+    "licitação": 1,
+}
 
-    # estrutura de artigo (fortíssimo sinal negativo)
-    "art.", "artigo", "§", "parágrafo",
-    "inciso", "alínea", "caput",
+# =========================
+# 🌐 SESSION OTIMIZADA
+# =========================
+def criar_session():
+    session = requests.Session()
 
-    # linguagem de alteração normativa
-    "dá nova redação", "da nova redacao",
-    "passa a ter a seguinte redação",
-    "fica alterado", "ficam alterados",
-    "fica incluído", "ficam incluídos",
-    "fica excluído", "ficam excluídos",
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504]
+    )
 
-    # referência a normas existentes
-    "nos termos da", "na forma da lei",
-    "decreto", "portaria", "resolução",
-    "lei nº", "lei no", "decreto nº", "portaria nº"
-]
+    adapter = HTTPAdapter(max_retries=retries)
 
-def pegar_texto(driver):
-    paragrafos = driver.find_elements(By.CLASS_NAME, "dou-paragraph")
-    return " ".join([p.text for p in paragrafos]).lower()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
 
-def verificar_palavras(texto, palavras, palavras_negativas):
-    resultado_pos = {}
-    resultado_neg = {}
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0"
+    })
 
-    for p in palavras:
-        resultado_pos[p] = p.lower() in texto
+    return session
 
-    for p in palavras_negativas:
-        resultado_neg[p] = p.lower() in texto
+SESSION = criar_session()
 
-    return resultado_pos, resultado_neg
+# =========================
+# 📄 TEXTO (RÁPIDO)
+# =========================
+def pegar_texto_fast(url):
+    try:
+        response = SESSION.get(url, timeout=10)
+        response.raise_for_status()
 
+        soup = BeautifulSoup(response.text, "html.parser")
+        paragrafos = soup.find_all(class_="dou-paragraph")
+
+        return " ".join(p.get_text() for p in paragrafos).lower()
+
+    except Exception:
+        return ""
+
+# =========================
+# 🧠 SCORE
+# =========================
+def calcular_score(texto):
+    score_pos = sum(peso for palavra, peso in PESOS_POSITIVOS.items() if palavra in texto)
+    score_neg = sum(peso for palavra, peso in PESOS_NEGATIVOS.items() if palavra in texto)
+    return score_pos - score_neg
+
+# =========================
+# 🔎 BOTÃO PRÓXIMA
+# =========================
 def _encontrar_botao_proxima(driver):
     try:
         botao = driver.find_element(By.ID, "rightArrow")
@@ -79,8 +133,11 @@ def _encontrar_botao_proxima(driver):
 
     return botao
 
-def _coletar_links_paginados(driver, status=None, max_paginas=200):
-    wait = WebDriverWait(driver, 12)
+# =========================
+# 📄 PAGINAÇÃO
+# =========================
+def _coletar_links_paginados(driver, max_paginas=200):
+    wait = WebDriverWait(driver, 10)
     links_unicos = []
     vistos = set()
     pagina = 1
@@ -97,159 +154,105 @@ def _coletar_links_paginados(driver, status=None, max_paginas=200):
             vistos.add(href)
             links_unicos.append((titulo if titulo else "Sem titulo", href))
 
-        if status:
-            status.markdown(f"🔎 **Coletando resultados... página {pagina} ({len(links_unicos)} links únicos)**")
-
         botao_proxima = _encontrar_botao_proxima(driver)
         if not botao_proxima:
             break
 
-        url_antes = driver.current_url
         marcador = resultados[0] if resultados else None
 
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", botao_proxima)
-        try:
-            botao_proxima.click()
-        except Exception:
-            driver.execute_script("arguments[0].click();", botao_proxima)
+        driver.execute_script("arguments[0].click();", botao_proxima)
 
         try:
             if marcador:
                 wait.until(EC.staleness_of(marcador))
-            else:
-                wait.until(lambda d: d.current_url != url_antes)
         except TimeoutException:
-            if driver.current_url == url_antes:
-                break
+            break
 
         pagina += 1
 
     return links_unicos
 
-def analisar_links(url_busca, palavras, status=None, progress=None):
-    options = webdriver.ChromeOptions()
-    options.binary_location = "/usr/bin/chromium"
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+# =========================
+# ⚡ PROCESSAR UM LINK
+# =========================
+def processar_link(item):
+    titulo, link = item
+
+    texto = pegar_texto_fast(link)
+    score = calcular_score(texto)
+
+    positivas = [p for p in PESOS_POSITIVOS if p in texto]
+    negativas = [p for p in PESOS_NEGATIVOS if p in texto]
+
+    return {
+        "Documento": titulo,
+        "PDF": f"[PDF]({link})",
+        "Score": score,
+        "Palavras positivas": ", ".join(positivas),
+        "Palavras negativas": ", ".join(negativas),
+    }
+
+# =========================
+# 🚀 FUNÇÃO PRINCIPAL
+# =========================
+def analisar_links(url_busca, palavras_usuario, status=None, progress=None):
+    options = Options()
+    options.add_argument("--headless")
 
     driver = webdriver.Chrome(
-        service=Service("/usr/bin/chromedriver"),
+        service=Service(ChromeDriverManager().install()),
         options=options
     )
 
-    resumo = []
-    detalhes = []
     try:
-        if status: status.markdown("🔎 **Filtrando buscas...**")
-        if progress: progress.progress(10)
-
         driver.get(url_busca)
-        driver.implicitly_wait(5)
 
-        links = _coletar_links_paginados(driver, status=status)
-        total_links = len(links)
+        links = _coletar_links_paginados(driver)
+        total = len(links)
 
-        if status: status.markdown(f"🌐 **Abrindo resultados... {total_links} encontrados**")
-        if progress: progress.progress(20)
+        if status:
+            status.markdown(f"🌐 **{total} documentos encontrados**")
 
-        for i, (titulo, link) in enumerate(links):
-            if progress:
-                progresso = 30 + int(((i + 1) / max(total_links, 1)) * 60)
-                progress.progress(progresso)
+        resumo = []
 
-            if status:
-                status.markdown(
-                    f"📊 **Analisando documentos {i+1}/{total_links}**<br><small>{titulo}</small>",
-                    unsafe_allow_html=True
-                )
+        # 🔥 PARALELIZAÇÃO
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(processar_link, item) for item in links]
 
-            driver.get(link)
-            driver.implicitly_wait(5)
+            for i, future in enumerate(as_completed(futures)):
+                if progress:
+                    progress.progress(int((i / max(total, 1)) * 100))
 
-            texto = pegar_texto(driver)
-            resultado_pos, resultado_neg = verificar_palavras(texto, palavras, palavras_negativas)
-            negativas_encontradas = [p for p, v in resultado_neg.items() if v]
+                try:
+                    resultado = future.result()
+                    resumo.append(resultado)
+                except Exception:
+                    continue
 
-            # contador positivas
-            encontradas = [p for p, v in resultado_pos.items() if v]
-            qtd = len(encontradas)
-            total = len(palavras)
-
-            # contador negativas
-            encontradas_neg = [p for p, v in resultado_neg.items() if v]
-            qtd_neg = len(encontradas_neg)
-            total_neg = len(palavras_negativas)
-
-            resumo.append({
-                "Documento": titulo,
-                "PDF": f"[PDF]({link})",
-                "Match": f"{qtd}/{total}",
-                "Encontradas": ", ".join(encontradas),
-                "Match Negativas": f"{qtd_neg}/{total_neg}",
-                "Negativas encontradas": ", ".join(negativas_encontradas)
-            })
-
-            detalhes.append((titulo, link, resultado_pos, resultado_neg))
-
-        if progress: progress.progress(100)
-        if status: status.markdown("✅ **Finalizado!**")
+        if status:
+            status.markdown("✅ Finalizado!")
 
         return resumo
 
     finally:
         driver.quit()
 
+# =========================
+# 📊 TABELA
+# =========================
 def gerar_tabela(resumo):
-    dados_tabela = []
-    for r in resumo:
-        link_pdf = r["PDF"].split("(")[1].replace(")", "")
-        dados_tabela.append({
-            "Documento": r["Documento"],
-            "PDF": f'<a href="{link_pdf}" target="_blank">pdf</a>',
-            "Match": r["Match"],
-            "Palavras encontradas": r["Encontradas"],
-            "Match Negativas": r["Match Negativas"],
-            "Palavras negativas": r.get("Negativas encontradas", "")
-        })
+    df = pd.DataFrame(resumo)
 
-    if not dados_tabela:
-        df = pd.DataFrame(columns=["Documento", "Match", "PDF", "Palavras encontradas", "Palavras negativas"])
-        df["_qtd"] = pd.Series(dtype="int64")
-        styled_df = df.style.hide(axis="columns", subset=["_qtd"])
-        return styled_df
-
-    df = pd.DataFrame(dados_tabela)
-
-    # quantidade de matches
-    df["_qtd"] = df["Match"].apply(lambda x: int(x.split("/")[0]))
-    df["_qtd_total"] = df["Match"].apply(lambda x: int(x.split("/")[1]))
-
-    df["_qtdn"] = df["Match Negativas"].apply(lambda x: int(x.split("/")[0]))
-    df["_qtdn_total"] = df["Match Negativas"].apply(lambda x: int(x.split("/")[1]))
-
-
-    # SCORE (pode ajustar pesos depois)
-    df["_score"] = (
-        df["_qtd"] * 2.0     # positivo pesa mais
-        - df["_qtdn"] * 2.5  # negativo pesa mais ainda
-    )
+    if df.empty:
+        return df
 
     def destacar_linha(row):
+        score = row["Score"]
 
-        score = row["_score"]
-
-        # 🟢 alta chance de representação
-        if score >= 3:
+        if score >= 5:
             return ["background-color: #e6f4ea"] * len(row)
-
-        # 🟡 zona de incerteza (pode ser ou não)
-        if 0 < score < 3:
+        elif score > 0:
             return ["background-color: #fff9c4"] * len(row)
-
-        # ⚪ neutro / não parece representação
         return [""] * len(row)
 
-    styled_df = df.style.apply(destacar_linha, axis=1)
-    styled_df = styled_df.hide(axis="columns", subset=["_qtd"])
-    return styled_df
+    return df.style.apply(destacar_linha, axis=1)
